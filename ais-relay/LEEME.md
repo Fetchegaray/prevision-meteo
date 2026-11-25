@@ -21,6 +21,9 @@ En el Worker: **Settings → Variables and Secrets → Add**:
 
 Guardá y volvé a desplegar.
 
-## 4. Conectar la app
+## 4. Probar el relevo
+Abrí en el navegador `https://ais-relay.TU-USUARIO.workers.dev/test`. En unos 15 segundos te dice si la clave está cargada, si AISStream acepta la conexión y cuántos reportes recibió (de todo el mundo). Si dice «Reportes recibidos: 0» o muestra un error, el problema está entre el relevo y AISStream, no en la app.
+
+## 5. Conectar la app
 La dirección del Worker es algo como `https://ais-relay.TU-USUARIO.workers.dev`.
 En la app, abrí **AIS · buques en tiempo real**, pegá esa dirección cambiando `https://` por `wss://` y tocá **Conectar**.

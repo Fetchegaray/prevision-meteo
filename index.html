@@ -53,8 +53,18 @@ input[type=number]{font-family:var(--f-mono)}
 @media (max-width:860px){.plan{grid-template-columns:1fr}}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;min-width:0}
 .stack{display:grid;gap:12px;align-content:start}
-#map{height:430px;border-radius:6px;border:1px solid var(--line);z-index:0}
-@media (max-width:860px){#map{height:320px}}
+#map{height:430px;border-radius:6px 6px 0 0;border:1px solid var(--line);z-index:0}
+.mapcol{display:grid;gap:6px;align-content:start;min-width:0}
+.maptools{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.maptools .seg button{padding:5px 10px;font-size:.78rem}
+.mhlbl{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--muted)}
+.mhlbl input{width:6.5em;padding:4px 6px}
+.mapgrip{height:14px;margin-top:-6px;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--panel);cursor:ns-resize;display:grid;place-items:center;touch-action:none}
+.mapgrip span{width:48px;height:4px;border-radius:2px;background:var(--muted);opacity:.6}
+.mapgrip:focus-visible{outline:2px solid var(--accent)}
+.plan.full{grid-template-columns:1fr}
+.plan.full .mapcol{order:-1}
+
 .srch{display:flex;gap:8px}
 .results{display:grid;gap:4px;max-height:180px;overflow:auto}
 .results button{text-align:left;background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:400;font-size:.85rem}
@@ -172,7 +182,7 @@ dialog::backdrop{background:rgba(5,15,25,.45)}
 .navgrid b{font-family:var(--f-disp);font-size:1.9rem;font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums}
 .navgrid b small{font-size:.9rem;color:var(--muted);font-weight:500;margin-left:3px}
 .navgrid .wide{grid-column:1/-1}
-body.navmode #map{height:72vh}
+
 .mapbtn{background:var(--panel);color:var(--ink);border:2px solid rgba(0,0,0,.25);border-radius:4px;padding:5px 8px;font:600 .78rem var(--f-body);cursor:pointer}
 .mapbtn.on{background:var(--accent);color:#fff}
 .cursorpos{background:var(--panel);color:var(--ink);padding:3px 8px;border-radius:4px;font:500 .75rem var(--f-mono);border:1px solid var(--line)}
@@ -290,7 +300,16 @@ body.navmode #map{height:72vh}
       <div style="display:flex;gap:8px;flex-wrap:wrap" class="noprint"><button type="button" class="ghost small" id="rRev">Invertir ruta</button><button type="button" class="ghost small" id="rClear">Borrar ruta</button></div>
     </div>
   </div>
-  <div id="map" role="application" aria-label="Mapa"></div>
+  <div class="mapcol">
+    <div class="maptools noprint">
+      <span class="lbl">Carta</span>
+      <div class="seg" role="group" aria-label="Tamaño de la carta"><button type="button" data-mh="320" aria-pressed="false">Chica</button><button type="button" data-mh="430" aria-pressed="false">Mediana</button><button type="button" data-mh="650" aria-pressed="false">Grande</button><button type="button" data-mh="screen" aria-pressed="false">Alto de pantalla</button></div>
+      <label for="mapH" class="mhlbl">Alto (px)<input type="number" id="mapH" min="200" max="3000" step="10"></label>
+      <label class="chk" for="mapFull"><input type="checkbox" id="mapFull"> Ancho completo</label>
+    </div>
+    <div id="map" role="application" aria-label="Mapa"></div>
+    <div class="mapgrip noprint" id="mapGrip" role="separator" aria-orientation="horizontal" aria-label="Arrastrá para cambiar el alto de la carta" tabindex="0"><span></span></div>
+  </div>
 </div>
 
 <div class="verdict" id="verdict"><b>Cargando…</b><span class="muted">Consultando 7 modelos meteorológicos y 4 de oleaje.</span></div>
@@ -1395,20 +1414,23 @@ document.addEventListener("fullscreenchange",()=>setTimeout(()=>map.invalidateSi
 $("nWx").addEventListener("click",()=>{if(!NV.fix){$("nStatus").textContent="Todavía no hay posición GPS.";return;}S.mode="point";renderCtrl();setPlace({name:"Mi posición",lat:NV.fix.lat,lon:NV.fix.lon,depth:S.place.depth||20},true);});
 
 // ======================= AIS (AISStream a través de relevo) =======================
-const aisLayer=L.layerGroup().addTo(map);const AIS={ws:null,on:false,ships:{},lastSub:0,subT:null,retry:null};
+const aisLayer=L.layerGroup().addTo(map);const AIS={ws:null,on:false,ships:{},lastSub:0,subT:null,retry:null,n:0,watch:null};
+const aisTestUrl=()=>($("aisUrl").value.trim().replace(/^wss:/i,"https:").replace(/^ws:/i,"http:").replace(/\/$/,""))+"/test";
+function aisStatus(){const nb=Object.keys(AIS.ships).length;$("aisStat").innerHTML=`Conectado · ${nb} buque${nb===1?"":"s"} en la zona · ${AIS.n} reporte${AIS.n===1?"":"s"} recibidos.`;}
 layerCtl.addOverlay(aisLayer,"Buques AIS");
 const aisIcon=(c,moving)=>L.divIcon({className:"shipico",html:`<svg width="20" height="20" viewBox="-10 -10 20 20" style="transform:rotate(${c||0}deg)">${moving?'<path d="M0 -9 L5 7 L0 4 L-5 7 Z"':'<circle r="4.5"'} fill="${moving?"#2f8f4e":"#8a96a0"}" stroke="#fff" stroke-width="1.5"/></svg>`,iconSize:[20,20],iconAnchor:[10,10]});
 function aisUI(){$("aisUrl").value=(S.cfg.ais&&S.cfg.ais.url)||"";$("aisOn").disabled=AIS.on;$("aisOff").disabled=!AIS.on;}
 function aisSub(){if(!AIS.ws||AIS.ws.readyState!==1)return;const now=Date.now();if(now-AIS.lastSub<1500){clearTimeout(AIS.subT);AIS.subT=setTimeout(aisSub,1600);return;}AIS.lastSub=now;
-  const b=map.getBounds().pad(0.3);AIS.ws.send(JSON.stringify({BoundingBoxes:[[[b.getSouth(),b.getWest()],[b.getNorth(),b.getEast()]]],FilterMessageTypes:["PositionReport","StandardClassBPositionReport","ExtendedClassBPositionReport","ShipStaticData"]}));}
+  const b=map.getBounds().pad(0.3);AIS.ws.send(JSON.stringify({BoundingBoxes:[[[b.getSouth(),b.getWest()],[b.getNorth(),b.getEast()]]],FilterMessageTypes:["PositionReport","StandardClassBPositionReport","ShipStaticData"]}));}
 function aisConnect(){
   const url=$("aisUrl").value.trim();if(!/^wss?:\/\//i.test(url)){$("aisStat").textContent="Ingresá la dirección del relevo (empieza con wss://).";return;}
   S.cfg.ais={url};save();AIS.on=true;aisUI();$("aisStat").textContent="Conectando…";
   try{AIS.ws=new WebSocket(url);}catch(e){$("aisStat").textContent="Dirección inválida: "+e.message;AIS.on=false;aisUI();return;}
-  AIS.ws.onopen=()=>{AIS.lastSub=0;aisSub();$("aisStat").textContent="Conectado. Esperando reportes…";};
-  AIS.ws.onmessage=async ev=>{let t=ev.data;if(t instanceof Blob)t=await t.text();let m;try{m=JSON.parse(t);}catch(e){return;}if(m.error){$("aisStat").textContent="AISStream: "+m.error;return;}aisMsg(m);};
+  AIS.ws.onopen=()=>{AIS.lastSub=0;AIS.n=0;AIS.err=null;aisSub();$("aisStat").textContent="Conectado. Esperando reportes…";
+    clearTimeout(AIS.watch);AIS.watch=setTimeout(()=>{if(AIS.on&&!AIS.n)$("aisStat").innerHTML=`Conectado con el relevo, pero AISStream no envió reportes en 30 s. Abrí <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">la prueba del relevo</a> para ver el motivo.`;},30000);};
+  AIS.ws.onmessage=async ev=>{let t=ev.data;if(t instanceof Blob)t=await t.text();let m;try{m=JSON.parse(t);}catch(e){return;}if(m.error){AIS.err=m.error;$("aisStat").innerHTML=`${esc(m.error)} · <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;return;}AIS.n++;aisMsg(m);};
   AIS.ws.onerror=()=>{$("aisStat").textContent="Error de conexión con el relevo.";};
-  AIS.ws.onclose=()=>{AIS.ws=null;if(AIS.on){$("aisStat").textContent="Conexión cerrada; reintentando en 10 s…";clearTimeout(AIS.retry);AIS.retry=setTimeout(()=>{if(AIS.on)aisConnect();},10000);}};
+  AIS.ws.onclose=()=>{AIS.ws=null;if(AIS.on){$("aisStat").innerHTML=(AIS.err?`${esc(AIS.err)}<br>`:"")+`Conexión cerrada; reintentando en 10 s. <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;clearTimeout(AIS.retry);AIS.retry=setTimeout(()=>{if(AIS.on)aisConnect();},10000);}};
 }
 function aisDisconnect(){AIS.on=false;clearTimeout(AIS.retry);try{AIS.ws&&AIS.ws.close();}catch(e){}AIS.ws=null;aisUI();$("aisStat").textContent="Desconectado.";}
 function aisMsg(m){
@@ -1421,7 +1443,7 @@ function aisMsg(m){
   const moving=(sh.sog||0)>0.5,dir=moving?(sh.cog??sh.hdg??0):(sh.hdg??0);
   const tip=`<b>${esc(sh.name||"Sin nombre")}</b><br>MMSI ${mm}<br>${f(sh.sog,1)} kn · ${sh.cog==null?"—":Math.round(sh.cog)+"°"}${sh.dest?"<br>Destino: "+esc(sh.dest):""}${sh.len?"<br>Eslora "+sh.len+" m":""}<br>${sh.t?hhmm(sh.t):""}`;
   if(!sh.mk)sh.mk=L.marker([sh.lat,sh.lon],{icon:aisIcon(dir,moving)}).bindTooltip(tip).addTo(aisLayer);else{sh.mk.setLatLng([sh.lat,sh.lon]);sh.mk.setIcon(aisIcon(dir,moving));sh.mk.setTooltipContent(tip);}
-  $("aisStat").textContent=`Conectado · ${Object.keys(AIS.ships).length} buques en la zona.`;
+  aisStatus();
 }
 setInterval(()=>{const lim=Date.now()-20*60e3;Object.keys(AIS.ships).forEach(k=>{const s2=AIS.ships[k];if(s2.t&&s2.t<lim){if(s2.mk)aisLayer.removeLayer(s2.mk);delete AIS.ships[k];}});},60e3);
 map.on("moveend",()=>{if(AIS.on)aisSub();});
@@ -1512,7 +1534,7 @@ function renderCtrl(){
   $("mPoint").setAttribute("aria-pressed",String(M==="point"));$("mRoute").setAttribute("aria-pressed",String(M==="route"));$("mNav").setAttribute("aria-pressed",String(nav));
   $("pointPanel").hidden=M!=="point";$("routePanel").hidden=M==="point";$("navPanel").hidden=!nav;$("viewPoint").hidden=M!=="point";$("viewRoute").hidden=M!=="route";
   ["verdict","srcState","secThr","secWindy","cvmod","srchPanel","favPanel"].forEach(id=>$(id).hidden=nav);if(nav)$("ltWarn").hidden=true;
-  document.body.classList.toggle("navmode",nav);setTimeout(()=>map.invalidateSize(),50);
+  document.body.classList.toggle("navmode",nav);setTimeout(()=>{if(typeof mapSize==="function")mapSize();},50);
   $("clickHint").textContent=M==="point"?"También podés tocar el mapa para elegir el punto.":M==="route"?"En modo ruta, cada toque en el mapa agrega un waypoint.":"En navegación el mapa no agrega puntos; editá la derrota en «Ruta».";
   $("nArr").value=S.nav.arr;
   document.querySelectorAll("[data-win]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.win===S.cfg.win)));
@@ -1545,7 +1567,25 @@ $("impFile").addEventListener("change",async()=>{const fl=$("impFile").files[0];
 window.addEventListener("resize",()=>{clearTimeout(window._rz);window._rz=setTimeout(()=>{if(D)render();},200);});
 if(window.matchMedia)matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{drawMap(false);if(D)render();});
 
-function renderAll(){renderCtrl();renderPlace();renderRouteEd();drawMap(true);renderCV();renderExt();setRV(true);navRender();aisUI();}
+// ---- tamaño de la carta ----
+function mapSize(){
+  const full=!!S.cfg.mapFull,nav=S.mode==="nav";let h=S.cfg.mapH;
+  if(h==="screen"||h==null)h=h==="screen"?Math.max(260,window.innerHeight-(nav?120:160)):(nav?Math.round(window.innerHeight*0.72):(window.innerWidth<860?320:430));
+  h=clamp(+h,200,3000);$("map").style.height=h+"px";$("mapH").value=Math.round(h);
+  $("mapFull").checked=full;document.querySelector(".plan").classList.toggle("full",full);
+  document.querySelectorAll("[data-mh]").forEach(b=>b.setAttribute("aria-pressed",String(String(S.cfg.mapH)===b.dataset.mh)));
+  map.invalidateSize();
+}
+document.querySelectorAll("[data-mh]").forEach(b=>b.addEventListener("click",()=>{S.cfg.mapH=b.dataset.mh==="screen"?"screen":+b.dataset.mh;save();mapSize();}));
+$("mapH").addEventListener("change",()=>{const v=+$("mapH").value;if(v>=200){S.cfg.mapH=v;save();mapSize();}});
+$("mapFull").addEventListener("change",()=>{S.cfg.mapFull=$("mapFull").checked;save();mapSize();});
+(function grip(){const g=$("mapGrip");let y0=0,h0=0,on=false;
+  g.addEventListener("pointerdown",e=>{on=true;y0=e.clientY;h0=$("map").offsetHeight;g.setPointerCapture(e.pointerId);e.preventDefault();});
+  g.addEventListener("pointermove",e=>{if(!on)return;const h=clamp(h0+e.clientY-y0,200,3000);$("map").style.height=h+"px";$("mapH").value=Math.round(h);map.invalidateSize();});
+  const end=()=>{if(!on)return;on=false;S.cfg.mapH=$("map").offsetHeight;save();mapSize();};g.addEventListener("pointerup",end);g.addEventListener("pointercancel",end);
+  g.addEventListener("keydown",e=>{if(e.key!=="ArrowUp"&&e.key!=="ArrowDown")return;e.preventDefault();S.cfg.mapH=clamp($("map").offsetHeight+(e.key==="ArrowDown"?40:-40),200,3000);save();mapSize();});})();
+window.addEventListener("resize",()=>{if(S.cfg.mapH==="screen"||S.cfg.mapH==null)mapSize();});
+function renderAll(){mapSize();renderCtrl();renderPlace();renderRouteEd();drawMap(true);renderCV();renderExt();setRV(true);navRender();aisUI();}
 renderAll();reload();
 })();
 </script>

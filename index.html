@@ -638,15 +638,11 @@ const whyTxt=st=>Object.keys(st.p).filter(k=>st.p[k]===2).map(k=>WHY[k]).join(",
 
 // ======================= Mapa =======================
 const map=L.map("map",{zoomControl:true,worldCopyJump:true}).setView([S.place.lat,S.place.lon],9);
-// Mapas base que funcionan también abriendo la app como archivo local
-const baseCarto=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:19,subdomains:"abcd",attribution:"© OpenStreetMap · © CARTO"});
-const baseOcean=L.layerGroup([
-  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",{maxZoom:13,attribution:"© Esri, GEBCO, NOAA"}),
-  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}",{maxZoom:13})]);
-const baseSat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:18,attribution:"© Esri, Maxar"});
+// OpenStreetMap + señalización náutica de OpenSeaMap (usar la app desde el link publicado)
+const baseOSM=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"});
 const seamarks=L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenSeaMap"});
-baseCarto.addTo(map);seamarks.addTo(map);
-L.control.layers({"Mapa":baseCarto,"Batimetría (océano)":baseOcean,"Satélite":baseSat},{"Señalización náutica":seamarks},{position:"topright"}).addTo(map);
+baseOSM.addTo(map);seamarks.addTo(map);
+L.control.layers({"OpenStreetMap":baseOSM},{"Señalización náutica (OpenSeaMap)":seamarks},{position:"topright"}).addTo(map);
 const icon=(col,txt)=>L.divIcon({className:"",html:`<div class="dotm" style="background:${col};${txt?"width:22px;height:22px;display:grid;place-items:center;color:#fff;font:600 11px sans-serif":""}">${txt||""}</div>`,iconSize:txt?[22,22]:[14,14],iconAnchor:txt?[11,11]:[7,7]});
 let pMarker=null,rLayer=L.layerGroup().addTo(map),sLayer=L.layerGroup().addTo(map);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();

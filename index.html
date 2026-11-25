@@ -641,8 +641,12 @@ const map=L.map("map",{zoomControl:true,worldCopyJump:true}).setView([S.place.la
 // OpenStreetMap + señalización náutica de OpenSeaMap (usar la app desde el link publicado)
 const baseOSM=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"});
 const seamarks=L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenSeaMap"});
+// Batimetría GEBCO (servicio WMS público de la OHI / COI-UNESCO, sin clave)
+const gebco=(layer,opt)=>L.tileLayer.wms("https://wms.gebco.net/mapserv?",Object.assign({layers:layer,format:"image/png",version:"1.3.0",transparent:false,attribution:"Batimetría © GEBCO Compilation Group"},opt||{}));
+const bathRelief=gebco("gebco_latest"),bathColor=gebco("gebco_latest_2"),bathOver=gebco("gebco_latest_2",{transparent:true,opacity:0.5});
 baseOSM.addTo(map);seamarks.addTo(map);
-L.control.layers({"OpenStreetMap":baseOSM},{"Señalización náutica (OpenSeaMap)":seamarks},{position:"topright"}).addTo(map);
+L.control.layers({"OpenStreetMap":baseOSM,"Batimetría GEBCO (relieve)":bathRelief,"Batimetría GEBCO (colores)":bathColor},
+  {"Batimetría sobre el mapa":bathOver,"Señalización náutica (OpenSeaMap)":seamarks},{position:"topright"}).addTo(map);
 const icon=(col,txt)=>L.divIcon({className:"",html:`<div class="dotm" style="background:${col};${txt?"width:22px;height:22px;display:grid;place-items:center;color:#fff;font:600 11px sans-serif":""}">${txt||""}</div>`,iconSize:txt?[22,22]:[14,14],iconAnchor:txt?[11,11]:[7,7]});
 let pMarker=null,rLayer=L.layerGroup().addTo(map),sLayer=L.layerGroup().addTo(map);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();

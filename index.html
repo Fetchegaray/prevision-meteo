@@ -1510,17 +1510,23 @@ layerCtl.addOverlay(aisLayer,"Buques AIS");
 const aisIcon=(c,moving)=>L.divIcon({className:"shipico",html:`<svg width="20" height="20" viewBox="-10 -10 20 20" style="transform:rotate(${c||0}deg)">${moving?'<path d="M0 -9 L5 7 L0 4 L-5 7 Z"':'<circle r="4.5"'} fill="${moving?"#2f8f4e":"#8a96a0"}" stroke="#fff" stroke-width="1.5"/></svg>`,iconSize:[20,20],iconAnchor:[10,10]});
 function aisUI(){$("aisUrl").value=(S.cfg.ais&&S.cfg.ais.url)||"";$("aisOn").disabled=AIS.on;$("aisOff").disabled=!AIS.on;}
 function aisSub(){if(!AIS.ws||AIS.ws.readyState!==1)return;const now=Date.now();if(now-AIS.lastSub<1500){clearTimeout(AIS.subT);AIS.subT=setTimeout(aisSub,1600);return;}AIS.lastSub=now;
-  const b=map.getBounds().pad(0.3);AIS.ws.send(JSON.stringify({BoundingBoxes:[[[b.getSouth(),b.getWest()],[b.getNorth(),b.getEast()]]],FilterMessageTypes:["PositionReport","StandardClassBPositionReport","ShipStaticData"]}));}
+  const b=map.getBounds().pad(0.3),cl=(v,m)=>Math.max(-m,Math.min(m,v));let W=b.getWest(),E=b.getEast();if(E-W>=360){W=-180;E=180;}else{W=((W+540)%360)-180;E=((E+540)%360)-180;if(E<W){W=-180;E=180;}}
+  AIS.ws.send(JSON.stringify({BoundingBoxes:[[[cl(b.getSouth(),90),W],[cl(b.getNorth(),90),E]]],FilterMessageTypes:["PositionReport","StandardClassBPositionReport","ShipStaticData"]}));}
 function aisConnect(){
   const url=$("aisUrl").value.trim();if(!/^wss?:\/\//i.test(url)){$("aisStat").textContent="Ingresá la dirección del relevo (empieza con wss://).";return;}
   S.cfg.ais={url};save();AIS.on=true;aisUI();$("aisStat").textContent="Conectando…";
   try{AIS.ws=new WebSocket(url);}catch(e){$("aisStat").textContent="Dirección inválida: "+e.message;AIS.on=false;aisUI();return;}
-  AIS.ws.onopen=()=>{AIS.lastSub=0;AIS.n=0;AIS.err=null;aisSub();$("aisStat").textContent="Conectado. Esperando reportes…";
-    clearTimeout(AIS.watch);AIS.watch=setTimeout(()=>{if(AIS.on&&!AIS.n)$("aisStat").innerHTML=`Conectado con el relevo, pero AISStream no envió reportes en 30 s. Abrí <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">la prueba del relevo</a> para ver el motivo.`;},30000);};
-  AIS.ws.onmessage=async ev=>{let t=ev.data;if(t instanceof Blob)t=await t.text();let m;try{m=JSON.parse(t);}catch(e){return;}if(m.error){AIS.err=m.error;$("aisStat").innerHTML=`${esc(m.error)} · <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;return;}AIS.n++;aisMsg(m);};
+  AIS.ws.onopen=()=>{AIS.lastSub=0;AIS.n=0;AIS.err=null;AIS.conf=false;aisSub();$("aisStat").textContent="Conectado. Esperando reportes…";
+    clearTimeout(AIS.watch);AIS.watch=setTimeout(()=>{if(AIS.on&&!AIS.n)$("aisStat").innerHTML=`${AIS.conf?"AISStream confirmó la suscripción pero no envió reportes en 30 s.":"AISStream no confirmó la suscripción en 30 s."} Abrí <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">la prueba del relevo</a> para ver el motivo.`;},30000);};
+  AIS.ws.onmessage=async ev=>{let t=ev.data;if(t instanceof Blob)t=await t.text();let m;try{m=JSON.parse(t);}catch(e){return;}if(m.relay==="upstream"){AIS.comp=m.compression;$("aisStat").textContent=`Relevo conectado a AISStream (compresión ${m.compression?"sí":"no"}). Esperando confirmación…`;return;}
+    if(m.MessageType==="SubscriptionConfirmation"){AIS.conf=true;AIS.retryN=0;$("aisStat").textContent=`Suscripción confirmada por AISStream${m.Message&&m.Message.CompressionEnabled!=null?` (compresión ${m.Message.CompressionEnabled?"sí":"no"})`:""}. Esperando reportes…`;return;}
+    if(m.error){AIS.err=m.error;$("aisStat").innerHTML=`${esc(m.error)} · <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;return;}if(!m.MetaData&&!m.Metadata)return;AIS.n++;aisMsg(m);};
   AIS.ws.onerror=()=>{$("aisStat").textContent="Error de conexión con el relevo.";};
-  AIS.ws.onclose=()=>{AIS.ws=null;if(AIS.on){$("aisStat").innerHTML=(AIS.err?`${esc(AIS.err)}<br>`:"")+`Conexión cerrada; reintentando en 10 s. <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;clearTimeout(AIS.retry);AIS.retry=setTimeout(()=>{if(AIS.on)aisConnect();},10000);}};
+  AIS.ws.onclose=()=>{AIS.ws=null;if(AIS.on){$("aisStat").innerHTML=(AIS.err?`${esc(AIS.err)}<br>`:"")+`Conexión cerrada; reintento en ${Math.round(aisDelay()/1000)} s. <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;clearTimeout(AIS.retry);AIS.retry=setTimeout(()=>{if(AIS.on)aisConnect();},AIS.nextDelay);}};
 }
+// reconexión con espera exponencial y variación aleatoria, como recomienda AISStream
+function aisDelay(){AIS.retryN=(AIS.retryN||0)+1;const base=Math.min(300,10*2**(AIS.retryN-1));AIS.nextDelay=Math.round(base*1000*(0.7+Math.random()*0.6));return AIS.nextDelay;}
+window.addEventListener("pagehide",()=>{try{AIS.ws&&AIS.ws.close(1000,"pestaña cerrada");}catch(e){}});
 function aisDisconnect(){AIS.on=false;clearTimeout(AIS.retry);try{AIS.ws&&AIS.ws.close();}catch(e){}AIS.ws=null;aisUI();$("aisStat").textContent="Desconectado.";}
 function aisMsg(m){
   const md=m.MetaData||m.Metadata||{},mm=String(md.MMSI||md.mmsi||"");if(!mm)return;const sh=AIS.ships[mm]=AIS.ships[mm]||{mmsi:mm};

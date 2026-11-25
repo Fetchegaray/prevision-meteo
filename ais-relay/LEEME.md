@@ -21,8 +21,11 @@ En el Worker: **Settings → Variables and Secrets → Add**:
 
 Guardá y volvé a desplegar.
 
+## 3b. Activar la compresión (obligatorio)
+AISStream limita el ancho de banda de las conexiones sin comprimir y descarta los mensajes excedentes. En el Worker: **Settings → Runtime → Compatibility flags → Add**, escribí `web_socket_compression` y guardá. Después volvé a desplegar.
+
 ## 4. Probar el relevo
-Abrí en el navegador `https://ais-relay.TU-USUARIO.workers.dev/test`. En unos 15 segundos te dice si la clave está cargada, si AISStream acepta la conexión y cuántos reportes recibió (de todo el mundo). Si dice «Reportes recibidos: 0» o muestra un error, el problema está entre el relevo y AISStream, no en la app.
+Abrí en el navegador `https://ais-relay.TU-USUARIO.workers.dev/test`. En unos 15 segundos te dice si la clave está cargada, si AISStream acepta la conexión y si la compresión quedó activa, si AISStream confirmó la suscripción y cuántos reportes recibió (de todo el mundo). Si dice «Reportes recibidos: 0» o muestra un error, el problema está entre el relevo y AISStream, no en la app.
 
 ## 5. Conectar la app
 La dirección del Worker es algo como `https://ais-relay.TU-USUARIO.workers.dev`.

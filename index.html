@@ -298,7 +298,7 @@ dialog::backdrop{background:rgba(5,15,25,.45)}
       <div class="wps" id="wps"></div>
       <div class="hint noprint">Tocá el mapa para agregar waypoints en orden, o usá el buscador y los lugares guardados. Arrastrá los marcadores para moverlos.</div>
       <div class="grid2">
-        <label for="rSpeed" class="lbl">Velocidad (kn)<input type="number" id="rSpeed" min="0.5" step="0.5"></label>
+        <label for="rSpeed" class="lbl">Velocidad (kn)<input type="number" id="rSpeed" min="0.1" step="0.1" placeholder="opcional"></label>
         <label for="rDep" class="lbl">Salida<input type="datetime-local" id="rDep"></label>
       </div>
       <div class="mono muted" id="rInfo">—</div>
@@ -378,19 +378,21 @@ dialog::backdrop{background:rgba(5,15,25,.45)}
       <div><span class="lbl">De</span><b id="wpFrom">—</b></div>
       <div><span class="lbl">Para</span><b id="wpTo">—</b></div>
       <div><span class="lbl">Distancia</span><b id="wpDist" class="mono">—</b></div>
-      <label for="wpSpeed">Velocidad planificada (kn)<input type="number" id="wpSpeed" min="0.5" step="0.1"></label>
+      <label for="wpSpeed">Velocidad general (kn, opcional)<input type="number" id="wpSpeed" min="0.1" step="0.1" placeholder="sin cargar"></label>
+      <label for="wpSpdMode">Velocidad por tramo<select id="wpSpdMode"><option value="gen">General para toda la ruta</option><option value="leg">Individual por tramo</option></select></label>
       <div><span class="lbl">En ruta</span><b id="wpTot" class="mono">—</b></div>
       <label for="wpDep">Partida<input type="datetime-local" id="wpDep"></label>
       <label for="wpUtc">Hora<select id="wpUtc"><option value="0">Hora local</option><option value="1">UTC</option></select></label>
     </div>
-    <div class="tbl"><table class="wpt"><thead><tr><th>P</th><th>Para waypoint</th><th>Marcación °T (carta)</th><th>Marc. inversa °T</th><th>Marc. calc.</th><th>Dist. tramo</th><th>Distancia total</th><th>Latitud</th><th>Longitud</th><th>TEC</th><th>Velocidad</th><th>ETA / ETD</th><th>Notas</th><th></th></tr></thead><tbody id="wpBody"></tbody></table></div>
+    <div class="tbl"><table class="wpt"><thead><tr><th>P</th><th>Para waypoint</th><th>Marcación °T (carta)</th><th>Marc. calc.</th><th>Dist. tramo</th><th>Distancia total</th><th>Latitud</th><th>Longitud</th><th>TEC</th><th>Velocidad</th><th>ETA / ETD</th><th>Notas</th><th></th></tr></thead><tbody id="wpBody"></tbody></table></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" class="noprint">
       <button type="button" class="ghost small" id="wpAdd">Agregar waypoint</button>
       <label class="ghost small" for="wpImp" style="display:inline-flex;gap:6px;align-items:center;font-size:.82rem">Importar GPX / Excel / CSV <input type="file" id="wpImp" accept=".gpx,.xlsx,.xls,.csv" style="width:auto"></label>
       <button type="button" class="ghost small" id="wpGpx">Exportar GPX (OpenCPN)</button>
+      <button type="button" class="ghost small" id="wpSpdClear">Borrar velocidades individuales</button>
       <span class="note" id="wpMsg"></span>
     </div>
-    <p class="note">Cada fila es el tramo que llega a ese waypoint, como en OpenCPN. Marcación °T (carta): rumbo verdadero del tramo tomado de la carta; Marc. inversa: el mismo tramo navegado al revés (se usa al invertir la ruta). Vacías = se usa la marcación calculada (loxodrómica, como en la carta Mercator y en OpenCPN). Velocidad vacía = velocidad planificada. TEC: tiempo estimado del tramo. Latitud y longitud aceptan 38° 02.4' S o -38.04.</p>
+    <p class="note">Cada fila es el tramo que llega a ese waypoint, como en OpenCPN. Marcación °T (carta): rumbo verdadero del tramo tomado de la carta. Vacía = se usa la marcación calculada (loxodrómica, como en la carta Mercator y en OpenCPN). Velocidad: elegí «General» (una sola para toda la ruta) o «Individual por tramo»; en modo individual, un tramo vacío usa la general. Sin velocidad se muestran distancias y marcaciones, pero no TEC, ETA ni pronóstico por hora de paso. TEC: tiempo estimado del tramo. Latitud y longitud aceptan 38° 02.4' S o -38.04.</p>
   </div>
 </section>
 <section aria-labelledby="h-dep">
@@ -607,6 +609,15 @@ function lvl(v,lim){if(v==null||lim==null||isNaN(v))return 0;if(v>lim)return 2;i
 function lvlMin(v,lim){if(v==null||lim==null||isNaN(v))return 0;if(v<lim)return 2;if(v<lim*1.25)return 1;return 0;}
 const CL=["go","warn","stop"],TX=["Apto","Marginal","No apto"];
 function relSector(fromDir,course){if(fromDir==null||course==null)return "—";const a=Math.abs(((fromDir-course+540)%360)-180);return a<=30?"proa":a<=60?"amura":a<=120?"través":a<=150?"aleta":"popa";}
+// ERDDAP (NOAA) no habilita CORS: se consulta por JSONP (&.jsonp=función), que admite oficialmente
+let _jp=0;
+function jsonp(url,timeout=30000){return new Promise((ok,ko)=>{const cb="_erd"+(++_jp)+"_"+Date.now();const sc=document.createElement("script");let done=false;
+  const end=()=>{done=true;try{delete window[cb];}catch(e){window[cb]=undefined;}sc.remove();clearTimeout(t);};
+  window[cb]=d=>{if(done)return;end();ok(d);};
+  sc.onerror=()=>{if(done)return;end();ko(new Error("NOAA rechazó la consulta o no respondió"));};
+  const t=setTimeout(()=>{if(done)return;end();ko(new Error("NOAA tardó demasiado en responder"));},timeout);
+  sc.src=url+".jsonp="+cb;sc.async=true;document.head.appendChild(sc);});}
+const erddap=url=>jsonp(url+"&");
 async function j(url){const r=await fetch(url,{cache:"no-store"});if(!r.ok){let t="";try{t=(await r.json()).reason||"";}catch(e){}throw new Error(r.status+(t?" · "+t:""));}return r.json();}
 
 // ======================= Fuentes =======================
@@ -687,8 +698,10 @@ const CONF=["alta","media","baja"];
 const num=v=>v===""||v==null||isNaN(+v)?null:+v;
 function legsInfo(){
   const w=S.route.wps,legs=[];let tot=0,tt=0;
-  for(let i=0;i<w.length-1;i++){const rh=rhumb(w[i],w[i+1]),d=rh.d,cc=rh.c,c=num(w[i].crsF)??cc,v=num(w[i].spd)||S.route.speed||6;legs.push({i,a:w[i],b:w[i+1],d,c,cc,v,s:tot,t0:tt,dt:d/v});tot+=d;tt+=d/v;}
-  return {legs,tot,tt};
+  let okT=true;const perLeg=S.route.spdMode==="leg",gen=num(S.route.speed);
+  for(let i=0;i<w.length-1;i++){const rh=rhumb(w[i],w[i+1]),d=rh.d,cc=rh.c,c=num(w[i].crsF)??cc,v=(perLeg?num(w[i].spd):null)||gen||null;
+    const dt=v?d/v:null;legs.push({i,a:w[i],b:w[i+1],d,c,cc,v,s:tot,t0:okT?tt:null,dt});tot+=d;if(dt==null)okT=false;else tt+=dt;}
+  return {legs,tot,tt:okT?tt:null,missing:legs.filter(l=>!l.v).map(l=>l.i+1)};
 }
 function routeSamples(){
   const w=S.route.wps;if(w.length<2)return [];const {legs,tot}=legsInfo();
@@ -696,7 +709,7 @@ function routeSamples(){
   let ds=[...cuts].sort((a,b)=>a-b);if(ds.length>24){const k=ds.length-1;ds=[...new Set(Array.from({length:24},(_,i)=>ds[Math.round(i*k/23)]))];}const out=[];
   ds.forEach(s=>{let L=legs.find(l=>s<l.s+l.d-1e-9)||legs[legs.length-1];const t=L.d?(s-L.s)/L.d:0;const p=interp(L.a,L.b,clamp(t,0,1));
     const wi=Math.abs(s-L.s)<1e-6?L.i:Math.abs(s-(L.s+L.d))<1e-6?L.i+1:-1;
-    out.push({lat:p.lat,lon:p.lon,dist:s,course:L.c,tOff:L.t0+(s-L.s)/L.v,name:wi>=0?(w[wi].name||("WP "+(wi+1))):""});});
+    out.push({lat:p.lat,lon:p.lon,dist:s,course:L.c,tOff:L.t0!=null&&L.v?L.t0+(s-L.s)/L.v:null,name:wi>=0?(w[wi].name||("WP "+(wi+1))):""});});
   return out;
 }
 function locations(){return S.mode==="route"?routeSamples():S.mode==="nav"?[]:[{lat:S.place.lat,lon:S.place.lon}];}
@@ -789,7 +802,7 @@ const bathGroup=L.layerGroup();let bathOv=null,bathGrid=null,bathReq=0,bathOn=fa
 async function fetchBath(b){
   const span=Math.max(b.n-b.s,b.e-b.w),stride=Math.max(1,Math.ceil(span/0.0041667/230));
   const q=(a,c)=>`z[(${a}):${stride}:(${c})][(${b.w.toFixed(4)}):${stride}:(${b.e.toFixed(4)})]`;
-  let r;try{r=await j(ERD_B+encodeURIComponent(q(b.s.toFixed(4),b.n.toFixed(4))));}catch(e){r=await j(ERD_B+encodeURIComponent(q(b.n.toFixed(4),b.s.toFixed(4))));}
+  let r;try{r=await erddap(ERD_B+encodeURIComponent(q(b.s.toFixed(4),b.n.toFixed(4))));}catch(e){r=await erddap(ERD_B+encodeURIComponent(q(b.n.toFixed(4),b.s.toFixed(4))));}
   const ci=r.table.columnNames,la=ci.indexOf("latitude"),lo=ci.indexOf("longitude"),zi=ci.indexOf("z"),rows=r.table.rows;
   const lats=[...new Set(rows.map(x=>x[la]))].sort((a,c)=>a-c),lons=[...new Set(rows.map(x=>x[lo]))].sort((a,c)=>a-c);
   const li=new Map(lats.map((v,i)=>[v,i])),oi=new Map(lons.map((v,i)=>[v,i])),nx=lons.length,ny=lats.length,Z=new Float32Array(nx*ny).fill(NaN);
@@ -843,7 +856,7 @@ map.on("moveend",()=>{clearTimeout(bathTimer);bathTimer=setTimeout(refreshBath,4
 baseOSM.addTo(map);seamarks.addTo(map);bathGroup.addTo(map);
 const layerCtl=L.control.layers({"OpenStreetMap":baseOSM},{"Batimetría (solo agua)":bathGroup,"Señalización náutica (OpenSeaMap)":seamarks},{position:"topright"}).addTo(map);
 // profundidad sugerida para el punto consultado
-async function depthAtPoint(lat,lon){const r=await j(ERD_B+encodeURIComponent(`z[(${lat.toFixed(4)})][(${lon.toFixed(4)})]`));const ci=r.table.columnNames;const z=r.table.rows[0][ci.indexOf("z")];return z==null?null:z;}
+async function depthAtPoint(lat,lon){const r=await erddap(ERD_B+encodeURIComponent(`z[(${lat.toFixed(4)})][(${lon.toFixed(4)})]`));const ci=r.table.columnNames;const z=r.table.rows[0][ci.indexOf("z")];return z==null?null:z;}
 const icon=(col,txt)=>L.divIcon({className:"",html:`<div class="dotm" style="background:${col};${txt?"width:22px;height:22px;display:grid;place-items:center;color:#fff;font:600 11px sans-serif":""}">${txt||""}</div>`,iconSize:txt?[22,22]:[14,14],iconAnchor:txt?[11,11]:[7,7]});
 let pMarker=null,rLayer=L.layerGroup().addTo(map),sLayer=L.layerGroup().addTo(map);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -912,11 +925,11 @@ $("qBtn").addEventListener("click",search);$("q").addEventListener("keydown",e=>
 function renderRouteEd(){
   const w=S.route.wps;
   $("wps").innerHTML=w.length?w.map((p,i)=>`<div class="wp"><span class="n">${i+1}</span><span>${esc(p.name||"Waypoint")}<br><span class="mono muted">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</span></span><span class="noprint"><button type="button" class="ghost small" data-up="${i}" aria-label="Subir">↑</button> <button type="button" class="ghost small" data-rm="${i}" aria-label="Quitar">✕</button></span></div>`).join(""):'<span class="muted">Sin waypoints. Agregá al menos salida y llegada.</span>';
-  $("rSpeed").value=S.route.speed||6;
+  $("rSpeed").value=S.route.speed??"";
   if(!S.route.dep||S.route.dep<nowHour())S.route.dep=nowHour()+36e5;
   $("rDep").value=toLocalInput(S.route.dep);
   const smp=routeSamples();
-  if(smp.length){const {tot,tt}=legsInfo();$("rInfo").textContent=`${f(tot,1)} nm · ${hm(tt)} · velocidad media ${f(tot/tt,1)} kn · ${smp.length} puntos evaluados`;}
+  if(smp.length){const {tot,tt,missing}=legsInfo();$("rInfo").textContent=tt==null?`${f(tot,1)} nm · falta la velocidad en ${missing.length} tramo${missing.length>1?"s":""}`:`${f(tot,1)} nm · ${hm(tt)} · velocidad media ${f(tot/tt,1)} kn · ${smp.length} puntos evaluados`;}
   else $("rInfo").textContent="—";
   $("rName").value=S.route.name||"";
   $("rSaved").innerHTML=S.routes.length?S.routes.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join(""):'<option value="">Sin rutas guardadas</option>';
@@ -924,10 +937,10 @@ function renderRouteEd(){
 }
 $("wps").addEventListener("click",e=>{const w=S.route.wps;const a=e.target.closest("[data-rm]"),u=e.target.closest("[data-up]");
   if(a){w.splice(+a.dataset.rm,1);}else if(u){const i=+u.dataset.up;if(i>0)[w[i-1],w[i]]=[w[i],w[i-1]];}else return;save();routeChanged();});
-$("rSpeed").addEventListener("change",()=>{S.route.speed=Math.max(0.5,+$("rSpeed").value||6);save();renderRouteEd();if(D)render();});
+$("rSpeed").addEventListener("change",()=>{const v=$("rSpeed").value;S.route.speed=v===""?null:Math.max(0.1,+v);save();renderRouteEd();if(D)render();});
 $("rDep").addEventListener("change",()=>{S.route.dep=fromLocalInput($("rDep").value);save();if(D)render();});
 $("rRev").addEventListener("click",()=>{const w=S.route.wps,n=w.length;const legs=w.slice(0,n-1).map(x=>({f:x.crsF,r:x.crsR,v:x.spd}));
-  w.reverse();w.forEach((x,i)=>{const L=legs[n-2-i];if(L){x.crsF=L.r;x.crsR=L.f;x.spd=L.v;}else{x.crsF=null;x.crsR=null;x.spd=null;}});save();routeChanged();});
+  w.reverse();w.forEach((x,i)=>{const L=legs[n-2-i];if(L){x.crsF=num(L.r)??(num(L.f)!=null?(num(L.f)+180)%360:null);x.crsR=L.f;x.spd=L.v;}else{x.crsF=null;x.crsR=null;x.spd=null;}});save();routeChanged();});
 $("rName").addEventListener("change",()=>{S.route.name=$("rName").value.trim();save();renderWpTable();});
 $("rSave").addEventListener("click",()=>{if(S.route.wps.length<2){$("rInfo").textContent="Agregá al menos dos waypoints antes de guardar.";return;}
   const name=S.route.name||("Ruta "+new Date().toLocaleDateString("es-AR"));S.route.name=name;const ex=S.routes.find(r=>r.name===name);const data={name,wps:JSON.parse(JSON.stringify(S.route.wps)),speed:S.route.speed};
@@ -941,19 +954,20 @@ function whenR(ms){if(!S.route.utc)return when(ms);const d=new Date(ms);return `
 function renderWpTable(){
   const w=S.route.wps,{legs,tot,tt}=legsInfo();const dep=S.route.dep||nowHour();
   $("wpName").value=S.route.name||"";$("wpFrom").textContent=w.length?(w[0].name||"WP 1"):"—";$("wpTo").textContent=w.length>1?(w[w.length-1].name||"WP "+w.length):"—";
-  $("wpDist").textContent=legs.length?f(tot,1)+" MN":"—";$("wpTot").textContent=legs.length?fmtTEC(tt):"—";$("wpSpeed").value=S.route.speed||6;$("wpDep").value=toLocalInput(dep);$("wpUtc").value=S.route.utc?"1":"0";
+  $("wpDist").textContent=legs.length?f(tot,1)+" MN":"—";$("wpTot").textContent=!legs.length?"—":tt==null?"falta velocidad":fmtTEC(tt);$("wpSpeed").value=S.route.speed??"";$("wpSpdMode").value=S.route.spdMode==="leg"?"leg":"gen";$("wpSpdClear").hidden=S.route.spdMode!=="leg";$("wpDep").value=toLocalInput(dep);$("wpUtc").value=S.route.utc?"1":"0";
   if(!w.length){$("wpBody").innerHTML='<tr><td colspan="14" class="txt muted">Sin waypoints. Tocá el mapa, usá el buscador o importá un GPX de OpenCPN o una planilla.</td></tr>';return;}
-  $("wpBody").innerHTML=w.map((p,i)=>{const L=i?legs[i-1]:null,q=i?w[i-1]:null;const eta=dep+(L?L.t0+L.dt:0)*36e5;const cum=L?L.s+L.d:0;
+  const perLeg=S.route.spdMode==="leg";
+  $("wpBody").innerHTML=w.map((p,i)=>{const L=i?legs[i-1]:null,q=i?w[i-1]:null;const eta=!L?dep:(L.t0!=null&&L.dt!=null?dep+(L.t0+L.dt)*36e5:null);const cum=L?L.s+L.d:0;
     const warn=L&&num(q.crsF)!=null&&Math.abs(((num(q.crsF)-L.cc+540)%360)-180)>5;
     const ang=(k,ph,lab)=>`<input class="n3" data-f="${k}" data-leg="${i-1}" type="number" min="0" max="360" step="0.5" value="${q[k]??""}" placeholder="${String(Math.round(ph)).padStart(3,"0")}" aria-label="${lab}">`;
     return `<tr data-i="${i}" class="${i?"":"start"}"><td>${i?i:"---"}</td><td><input class="nm" data-f="name" value="${esc(p.name||"")}" placeholder="WP ${i+1}" aria-label="Nombre WP ${i+1}"></td>
-      <td>${L?ang("crsF",L.cc,"Marcación de carta tramo "+i):"—"}</td><td>${L?ang("crsR",(L.cc+180)%360,"Marcación inversa tramo "+i):"—"}</td>
+      <td>${L?ang("crsF",L.cc,"Marcación de carta tramo "+i):"—"}</td>
       <td class="${warn?"mid":""}" title="${warn?"Difiere más de 5° de la marcación de carta":""}">${L?String(Math.round(L.cc)).padStart(3,"0")+" °T":"—"}</td>
       <td>${L?f(L.d,1)+" MN":"—"}</td><td>${f(cum,1)} MN</td>
       <td><input class="ll" data-f="lat" value="${llDisp(p.lat,true)}" aria-label="Latitud WP ${i+1}"></td><td><input class="ll" data-f="lon" value="${llDisp(p.lon,false)}" aria-label="Longitud WP ${i+1}"></td>
       <td>${L?fmtTEC(L.dt):"—"}</td>
-      <td>${L?`<input class="n3" data-f="spd" data-leg="${i-1}" type="number" min="0.5" step="0.1" value="${q.spd??""}" placeholder="${f(S.route.speed,1)}" aria-label="Velocidad tramo ${i}">`:"—"}</td>
-      <td>${whenR(eta)}</td><td><input class="nt" data-f="note" value="${esc(p.note||"")}" aria-label="Notas WP ${i+1}"></td>
+      <td>${!L?"—":perLeg?`<input class="n3" data-f="spd" data-leg="${i-1}" type="number" min="0.1" step="0.1" value="${q.spd??""}" placeholder="${num(S.route.speed)!=null?f(S.route.speed,1):"—"}" aria-label="Velocidad tramo ${i}">`:(L.v?f(L.v,1):'<span class="muted">—</span>')}</td>
+      <td>${eta==null?'<span class="muted">—</span>':whenR(eta)}</td><td><input class="nt" data-f="note" value="${esc(p.note||"")}" aria-label="Notas WP ${i+1}"></td>
       <td><button type="button" class="ghost small" data-mv="-1" aria-label="Subir">↑</button> <button type="button" class="ghost small" data-mv="1" aria-label="Bajar">↓</button> <button type="button" class="ghost small" data-del="1" aria-label="Quitar">✕</button></td></tr>`;}).join("");
 }
 $("wpBody").addEventListener("change",e=>{const inp=e.target.closest("[data-f]");if(!inp)return;const i=+inp.closest("tr").dataset.i,k=inp.dataset.f,v=inp.value;
@@ -964,7 +978,9 @@ $("wpBody").addEventListener("change",e=>{const inp=e.target.closest("[data-f]")
 $("wpBody").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;const i=+b.closest("tr").dataset.i,w=S.route.wps;
   if(b.dataset.del){w.splice(i,1);}else if(b.dataset.mv){const j=i+(+b.dataset.mv);if(j<0||j>=w.length)return;[w[i],w[j]]=[w[j],w[i]];}else return;save();routeChanged();});
 $("wpName").addEventListener("change",()=>{S.route.name=$("wpName").value.trim();save();renderRouteEd();});
-$("wpSpeed").addEventListener("change",()=>{S.route.speed=Math.max(0.5,+$("wpSpeed").value||6);save();renderRouteEd();if(D)render();});
+$("wpSpeed").addEventListener("change",()=>{const v=$("wpSpeed").value;S.route.speed=v===""?null:Math.max(0.1,+v);save();renderRouteEd();if(D)render();});
+$("wpSpdMode").addEventListener("change",()=>{S.route.spdMode=$("wpSpdMode").value;save();renderRouteEd();if(D)render();});
+$("wpSpdClear").addEventListener("click",()=>{S.route.wps.forEach(x=>x.spd=null);save();renderRouteEd();if(D)render();});
 $("wpDep").addEventListener("change",()=>{S.route.dep=fromLocalInput($("wpDep").value);save();renderRouteEd();if(D)render();});
 $("wpUtc").addEventListener("change",()=>{S.route.utc=$("wpUtc").value==="1";save();renderWpTable();});
 // ---- GPX (OpenCPN) ----
@@ -975,7 +991,7 @@ function toGpx(){const w=S.route.wps,dep=new Date(S.route.dep||nowHour()).toISOS
       <sym>diamond</sym>
       <type>WPT</type>
       <extensions>
-        <opencpn:arrival_radius>${(S.nav.arr||0.1).toFixed(3)}</opencpn:arrival_radius>${num(p.spd)!=null?`\n        <opencpn:planned_speed>${num(p.spd)}</opencpn:planned_speed>`:""}${num(p.crsF)!=null?`\n        <prev:course_chart>${num(p.crsF)}</prev:course_chart>`:""}${num(p.crsR)!=null?`\n        <prev:course_chart_reverse>${num(p.crsR)}</prev:course_chart_reverse>`:""}
+        <opencpn:arrival_radius>${(S.nav.arr||0.1).toFixed(3)}</opencpn:arrival_radius>${S.route.spdMode==="leg"&&num(p.spd)!=null?`\n        <opencpn:planned_speed>${num(p.spd)}</opencpn:planned_speed>`:""}${num(p.crsF)!=null?`\n        <prev:course_chart>${num(p.crsF)}</prev:course_chart>`:""}${num(p.crsR)!=null?`\n        <prev:course_chart_reverse>${num(p.crsR)}</prev:course_chart_reverse>`:""}
       </extensions>
     </rtept>`).join("\n");
   return `<?xml version="1.0" encoding="utf-8"?>
@@ -985,7 +1001,7 @@ function toGpx(){const w=S.route.wps,dep=new Date(S.route.dep||nowHour()).toISOS
     <extensions>
       <opencpn:start>${xmlEsc(w.length?w[0].name||"":"")}</opencpn:start>
       <opencpn:end>${xmlEsc(w.length?w[w.length-1].name||"":"")}</opencpn:end>
-      <opencpn:planned_speed>${S.route.speed||6}</opencpn:planned_speed>
+${num(S.route.speed)!=null?`      <opencpn:planned_speed>${num(S.route.speed)}</opencpn:planned_speed>\n`:""}
       <opencpn:planned_departure>${dep}</opencpn:planned_departure>
       <opencpn:time_display>${S.route.utc?"UTC":"LOCAL TIME"}</opencpn:time_display>
     </extensions>
@@ -1007,7 +1023,7 @@ $("wpGpx").addEventListener("click",()=>{if(S.route.wps.length<2){$("wpMsg").tex
 $("wpAdd").addEventListener("click",()=>{const c=map.getCenter();S.route.wps.push({lat:c.lat,lon:c.lng,name:""});save();routeChanged();$("wpMsg").textContent="Agregado en el centro del mapa: corregí latitud y longitud en la planilla.";});
 $("wpImp").addEventListener("change",async()=>{const fl=$("wpImp").files[0];if(!fl)return;$("wpMsg").textContent="Leyendo archivo…";
   if(/\.gpx$/i.test(fl.name)){try{const g=fromGpx(await fl.text());if(g.wps.length<2)throw new Error("el GPX no tiene una ruta con al menos dos puntos");
-      S.route.wps=g.wps;S.route.name=g.name||fl.name.replace(/\.gpx$/i,"");if(g.speed)S.route.speed=g.speed;if(g.dep&&g.dep>Date.now())S.route.dep=g.dep;if(g.utc)S.route.utc=true;S.nav.active=1;save();routeChanged(true);$("wpMsg").textContent=`Importada «${S.route.name}»: ${g.wps.length} waypoints.`;}
+      S.route.wps=g.wps;S.route.name=g.name||fl.name.replace(/\.gpx$/i,"");if(g.speed)S.route.speed=g.speed;if(g.wps.some(x=>x.spd!=null))S.route.spdMode="leg";if(g.dep&&g.dep>Date.now())S.route.dep=g.dep;if(g.utc)S.route.utc=true;S.nav.active=1;save();routeChanged(true);$("wpMsg").textContent=`Importada «${S.route.name}»: ${g.wps.length} waypoints.`;}
     catch(err){$("wpMsg").textContent="No se pudo importar: "+err.message;}$("wpImp").value="";return;}
   try{await loadScript(LIB.xlsx);const wb=XLSX.read(await fl.arrayBuffer(),{type:"array"});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,defval:""});
     const hi=rows.findIndex(r=>r.some(c=>/lat/i.test(c))&&r.some(c=>/lon/i.test(c)));if(hi<0)throw new Error("no encuentro columnas de latitud y longitud");
@@ -1137,12 +1153,14 @@ function renderCmp(li,i){
 function idxAt(ms){const k=Math.round((ms-D.ms[0])/36e5);return k>=0&&k<D.n?k:null;}
 function passRows(dep){
   const smp=D.L.map(x=>x.loc),cur=routeSamples(),same=cur.length===smp.length;
-  return smp.map((s0,li)=>{const s=same?Object.assign({},s0,{tOff:cur[li].tOff,name:cur[li].name,course:cur[li].course}):s0;const eta=dep+s.tOff*36e5,i=idxAt(eta);if(i==null)return {li,s,eta,na:true};const e=ens(D.L[li],i);e.li=li;e.s=s;e.eta=eta;e.i=i;e.st=evalRow(e,false);return e;});
+  return smp.map((s0,li)=>{const s=same?Object.assign({},s0,{tOff:cur[li].tOff,name:cur[li].name,course:cur[li].course}):s0;if(s.tOff==null)return {li,s,eta:NaN,na:true};const eta=dep+s.tOff*36e5,i=idxAt(eta);if(i==null)return {li,s,eta,na:true};const e=ens(D.L[li],i);e.li=li;e.s=s;e.eta=eta;e.i=i;e.st=evalRow(e,false);return e;});
 }
 function depScore(rows){if(rows.some(r=>r.na))return null;const L0=P();const s=Math.max(...rows.map(r=>r.st.s)),night=rows.some(r=>r.st.night);
   const sev=Math.max(...rows.map(r=>Math.max((r.wind||0)/L0.wind,(r.gust||0)/L0.gust,(r.hs||0)/L0.wave)));return {s:night&&s<2?2:s,sev,night:night&&s<2};}
 function renderRoute(){
-  const smp=D.L.map(x=>x.loc);if(smp.length<2)return;const L0=P();const tot=smp[smp.length-1].dist,dur=legsInfo().tt*36e5;
+  const smp=D.L.map(x=>x.loc);if(smp.length<2)return;const L0=P();const LI=legsInfo();
+  if(LI.tt==null){$("verdict").className="verdict";$("verdict").innerHTML=`<b>Falta la velocidad</b><span>Para calcular horas de paso y el pronóstico por tramo cargá la velocidad general o la de ${LI.missing.length===1?"el tramo "+LI.missing[0]:"los tramos "+LI.missing.join(", ")}.</span>`;$("depStrip").innerHTML="";$("depLbls").innerHTML="";$("depList").innerHTML="";$("rBody").innerHTML="";colorSamples(null);renderRoutePoint();return;}
+  const tot=smp[smp.length-1].dist,dur=LI.tt*36e5;
   const w=win();let a=Math.max(w.from,nowHour()),b=Math.max(a,w.to-dur);
   const deps=[];for(let t=a;t<=b&&deps.length<400;t+=36e5)deps.push(t);
   const evals=deps.map(t=>({t,sc:depScore(passRows(t))}));
@@ -1279,7 +1297,7 @@ async function loadSat(){
   for(const ds of DS){
     const t=ds.old?new Date(Date.now()-150*864e5).toISOString().slice(0,10)+"T00:00:00Z":t0;
     const q=`kd_490[(${t}):1:(last)][(0.0):1:(0.0)][(${(lat+ds.b).toFixed(4)}):1:(${(lat-ds.b).toFixed(4)})][(${(lon-ds.b).toFixed(4)}):1:(${(lon+ds.b).toFixed(4)})]`;
-    try{const r=await j(`https://coastwatch.pfeg.noaa.gov/erddap/griddap/${ds.id}.json?`+encodeURIComponent(q));
+    try{const r=await erddap(`https://coastwatch.pfeg.noaa.gov/erddap/griddap/${ds.id}.json?`+encodeURIComponent(q));
       const ci=r.table.columnNames,ti=ci.indexOf("time"),ki=ci.indexOf("kd_490");const by={};
       r.table.rows.forEach(row=>{const v=row[ki];if(v==null||isNaN(v)||v<=0)return;(by[row[ti]]=by[row[ti]]||[]).push(v);});
       const days=Object.keys(by).filter(k=>by[k].length>=2).sort();
@@ -1545,10 +1563,10 @@ function domTable(tbodyId){const tb=$(tbodyId),tbl=tb.closest("table");const H=[
   return {head:keep.map(i=>H[i]),rows};}
 const kvCards=ids=>ids.map(([lab,a,b])=>[lab,[txt($(a)),b?txt($(b)):""].filter(Boolean).join(" · ")]);
 function wpData(){const w=S.route.wps,{legs}=legsInfo(),dep=S.route.dep||nowHour();
-  const head=["P","Para waypoint","Marcación °T (carta)","Marc. inversa °T","Marcación calculada °T","Distancia tramo (MN)","Distancia total (MN)","Latitud","Longitud","TEC","Velocidad (kn)","ETA / ETD","Notas","Lat decimal","Lon decimal"];
-  const rows=w.map((p,i)=>{const L=i?legs[i-1]:null,q=i?w[i-1]:null;return [i?i:"---",p.name||("WP "+(i+1)),L?(num(q.crsF)??""):"",L?(num(q.crsR)??""):"",L?Math.round(L.cc):"",L?+L.d.toFixed(1):"",+(L?L.s+L.d:0).toFixed(1),llDisp(p.lat,true),llDisp(p.lon,false),L?fmtTEC(L.dt):"",L?+(num(q.spd)||S.route.speed):"",whenR(dep+(L?L.t0+L.dt:0)*36e5),p.note||"",+p.lat.toFixed(6),+p.lon.toFixed(6)];});
+  const head=["P","Para waypoint","Marcación °T (carta)","Marcación calculada °T","Distancia tramo (MN)","Distancia total (MN)","Latitud","Longitud","TEC","Velocidad (kn)","ETA / ETD","Notas","Lat decimal","Lon decimal"];
+  const rows=w.map((p,i)=>{const L=i?legs[i-1]:null,q=i?w[i-1]:null;return [i?i:"---",p.name||("WP "+(i+1)),L?(num(q.crsF)??""):"",L?Math.round(L.cc):"",L?+L.d.toFixed(1):"",+(L?L.s+L.d:0).toFixed(1),llDisp(p.lat,true),llDisp(p.lon,false),L&&L.dt!=null?fmtTEC(L.dt):"",L&&L.v?+L.v:"",!L?whenR(dep):(L.t0!=null&&L.dt!=null?whenR(dep+(L.t0+L.dt)*36e5):""),p.note||"",+p.lat.toFixed(6),+p.lon.toFixed(6)];});
   return {head,rows};}
-function wpHead(){const w=S.route.wps,{tot,tt}=legsInfo();return [["Nombre",S.route.name||"—"],["De",w.length?w[0].name||"WP 1":"—"],["Para",w.length>1?w[w.length-1].name||("WP "+w.length):"—"],["Distancia",f(tot,1)+" MN"],["Velocidad planificada",f(S.route.speed,1)+" kn"],["En ruta",fmtTEC(tt)],["Partida",whenR(S.route.dep||nowHour())],["Hora",S.route.utc?"UTC":"Hora local"]];}
+function wpHead(){const w=S.route.wps,{tot,tt}=legsInfo();return [["Nombre",S.route.name||"—"],["De",w.length?w[0].name||"WP 1":"—"],["Para",w.length>1?w[w.length-1].name||("WP "+w.length):"—"],["Distancia",f(tot,1)+" MN"],["Velocidad",S.route.spdMode==="leg"?"Individual por tramo"+(num(S.route.speed)!=null?" (general "+f(S.route.speed,1)+" kn)":""):(num(S.route.speed)!=null?f(S.route.speed,1)+" kn":"sin cargar")],["En ruta",tt==null?"falta velocidad":fmtTEC(tt)],["Partida",whenR(S.route.dep||nowHour())],["Hora",S.route.utc?"UTC":"Hora local"]];}
 function blocks(ids){const out=[],w=win(),L0=P();
   ids.forEach(id=>{const sec=SECS.find(x=>x.id===id);const T=sec.label;
     if(id==="resumen")out.push({t:T,kv:[["Consulta",S.mode==="point"?"Punto":"Ruta"],S.mode==="point"?["Lugar",S.place.name]:["Ruta",S.route.name||"Sin nombre"],S.mode==="point"?["Coordenadas",fmtCoord(S.place.lat,S.place.lon)]:["Derrota",txt($("rInfo"))],["Perfil",L0.name],["Ventana",w.label],["Criterio",S.cfg.crit==="cons"?"Conservador (peor fuente)":"Ponderado"],["Veredicto",[...$("verdict").children].map(txt).filter(Boolean).join(" — ")],["Fuentes",MODELS.filter(m=>(srcState["m:"+m.id]||{}).ok).map(m=>m.name).join(", ")+" · oleaje: "+WAVES.filter(m=>(srcState["w:"+m.id]||{}).ok).map(m=>m.name).join(", ")],["Consulta realizada",new Date(D?D.at:Date.now()).toLocaleString("es-AR")]]});
@@ -1570,7 +1588,7 @@ async function expExcel(ids){
   const bl=blocks(ids);bl.forEach((b,k)=>{if(b.chart||b.skip)return;let aoa=[[b.t],[]];
     if(b.sheet&&k>0&&bl[k-1].kv&&bl[k-1].t.startsWith("Planilla")){/* ya agregado junto al encabezado */return;}
     if(b.kv&&b.t.startsWith("Planilla")&&bl[k+1]&&bl[k+1].sheet){aoa=aoa.concat(b.kv);aoa.push([]);aoa.push(bl[k+1].tbl.head);bl[k+1].tbl.rows.forEach(r=>aoa.push(r.map(asNum)));
-      const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=bl[k+1].tbl.head.map((h,i)=>({wch:i===1?26:i===12?30:Math.max(11,String(h).length+2)}));XLSX.utils.book_append_sheet(wb,ws,"Planilla de derrota");used["Planilla de derrota"]=1;return;}
+      const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=bl[k+1].tbl.head.map((h,i)=>({wch:i===1?26:i===11?30:Math.max(11,String(h).length+2)}));XLSX.utils.book_append_sheet(wb,ws,"Planilla de derrota");used["Planilla de derrota"]=1;return;}
     if(b.kv)aoa=aoa.concat(b.kv);else if(b.list)aoa=aoa.concat(b.list.map(x=>[x]));else{aoa.push(b.tbl.head);b.tbl.rows.forEach(r=>aoa.push(r.day!=null?[r.day]:r.map(asNum)));}
     const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=(b.tbl?b.tbl.head:[1,1]).map((h,i)=>({wch:i===0?18:Math.max(10,String(h).length+2)}));if(b.kv)ws["!cols"]=[{wch:24},{wch:90}];
     let nm=b.t.replace(/[\\\/\?\*\[\]:]/g," ").slice(0,28).trim();while(used[nm])nm=nm.slice(0,26)+"_"+(Object.keys(used).length);used[nm]=1;XLSX.utils.book_append_sheet(wb,ws,nm);});

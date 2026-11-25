@@ -279,15 +279,6 @@ dialog::backdrop{background:rgba(5,15,25,.45)}
       </div>
       <p class="note">La derrota es la definida en «Ruta». Herramienta de apoyo: no reemplaza el equipamiento de navegación reglamentario.</p>
     </div>
-    <details class="panel noprint" id="aisPanel">
-      <summary>AIS · buques en tiempo real</summary>
-      <div class="stack">
-        <label for="aisUrl" class="lbl">Dirección del relevo AIS<input type="text" id="aisUrl" placeholder="wss://….workers.dev"></label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="aisOn">Conectar</button><button type="button" class="ghost" id="aisOff" disabled>Desconectar</button></div>
-        <div class="muted" id="aisStat" role="status">Desconectado.</div>
-        <p class="note">Datos de AISStream.io a través de tu relevo en Cloudflare, que guarda la clave. Los pasos para crearlo están en el archivo «ais-relay/LEEME.md» del repositorio. La cobertura depende de las estaciones receptoras de la zona.</p>
-      </div>
-    </details>
     <div class="panel stack" id="routePanel" hidden>
       <div class="grid2 noprint">
         <label for="rName" class="lbl">Nombre de la ruta<input type="text" id="rName" maxlength="90" placeholder="Ej.: Ramallo – Mar del Plata"></label>
@@ -1502,48 +1493,6 @@ $("nFull").addEventListener("click",async()=>{const el=$("map");try{if(document.
 document.addEventListener("fullscreenchange",()=>setTimeout(()=>map.invalidateSize(),200));
 $("nWx").addEventListener("click",()=>{if(!NV.fix){$("nStatus").textContent="Todavía no hay posición GPS.";return;}S.mode="point";renderCtrl();setPlace({name:"Mi posición",lat:NV.fix.lat,lon:NV.fix.lon,depth:S.place.depth||20},true);});
 
-// ======================= AIS (AISStream a través de relevo) =======================
-const aisLayer=L.layerGroup().addTo(map);const AIS={ws:null,on:false,ships:{},lastSub:0,subT:null,retry:null,n:0,watch:null};
-const aisTestUrl=()=>($("aisUrl").value.trim().replace(/^wss:/i,"https:").replace(/^ws:/i,"http:").replace(/\/$/,""))+"/test";
-function aisStatus(){const nb=Object.keys(AIS.ships).length;$("aisStat").innerHTML=`Conectado · ${nb} buque${nb===1?"":"s"} en la zona · ${AIS.n} reporte${AIS.n===1?"":"s"} recibidos.`;}
-layerCtl.addOverlay(aisLayer,"Buques AIS");
-const aisIcon=(c,moving)=>L.divIcon({className:"shipico",html:`<svg width="20" height="20" viewBox="-10 -10 20 20" style="transform:rotate(${c||0}deg)">${moving?'<path d="M0 -9 L5 7 L0 4 L-5 7 Z"':'<circle r="4.5"'} fill="${moving?"#2f8f4e":"#8a96a0"}" stroke="#fff" stroke-width="1.5"/></svg>`,iconSize:[20,20],iconAnchor:[10,10]});
-function aisUI(){$("aisUrl").value=(S.cfg.ais&&S.cfg.ais.url)||"";$("aisOn").disabled=AIS.on;$("aisOff").disabled=!AIS.on;}
-function aisSub(){if(!AIS.ws||AIS.ws.readyState!==1)return;const now=Date.now();if(now-AIS.lastSub<1500){clearTimeout(AIS.subT);AIS.subT=setTimeout(aisSub,1600);return;}AIS.lastSub=now;
-  const b=map.getBounds().pad(0.3),cl=(v,m)=>Math.max(-m,Math.min(m,v));let W=b.getWest(),E=b.getEast();if(E-W>=360){W=-180;E=180;}else{W=((W+540)%360)-180;E=((E+540)%360)-180;if(E<W){W=-180;E=180;}}
-  AIS.ws.send(JSON.stringify({BoundingBoxes:[[[cl(b.getSouth(),90),W],[cl(b.getNorth(),90),E]]],FilterMessageTypes:["PositionReport","StandardClassBPositionReport","ShipStaticData"]}));}
-function aisConnect(){
-  const url=$("aisUrl").value.trim();if(!/^wss?:\/\//i.test(url)){$("aisStat").textContent="Ingresá la dirección del relevo (empieza con wss://).";return;}
-  S.cfg.ais={url};save();AIS.on=true;aisUI();$("aisStat").textContent="Conectando…";
-  try{AIS.ws=new WebSocket(url);}catch(e){$("aisStat").textContent="Dirección inválida: "+e.message;AIS.on=false;aisUI();return;}
-  AIS.ws.onopen=()=>{AIS.lastSub=0;AIS.n=0;AIS.err=null;AIS.conf=false;aisSub();$("aisStat").textContent="Conectado. Esperando reportes…";
-    clearTimeout(AIS.watch);AIS.watch=setTimeout(()=>{if(AIS.on&&!AIS.n)$("aisStat").innerHTML=`${AIS.conf?"AISStream confirmó la suscripción pero no envió reportes en 30 s.":"AISStream no confirmó la suscripción en 30 s."} Abrí <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">la prueba del relevo</a> para ver el motivo.`;},30000);};
-  AIS.ws.onmessage=async ev=>{let t=ev.data;if(t instanceof Blob)t=await t.text();let m;try{m=JSON.parse(t);}catch(e){return;}if(m.relay==="upstream"){AIS.comp=m.compression;$("aisStat").textContent=`Relevo conectado a AISStream (compresión ${m.compression?"sí":"no"}). Esperando confirmación…`;return;}
-    if(m.MessageType==="SubscriptionConfirmation"){AIS.conf=true;AIS.retryN=0;$("aisStat").textContent=`Suscripción confirmada por AISStream${m.Message&&m.Message.CompressionEnabled!=null?` (compresión ${m.Message.CompressionEnabled?"sí":"no"})`:""}. Esperando reportes…`;return;}
-    if(m.error){AIS.err=m.error;$("aisStat").innerHTML=`${esc(m.error)} · <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;return;}if(!m.MetaData&&!m.Metadata)return;AIS.n++;aisMsg(m);};
-  AIS.ws.onerror=()=>{$("aisStat").textContent="Error de conexión con el relevo.";};
-  AIS.ws.onclose=()=>{AIS.ws=null;if(AIS.on){$("aisStat").innerHTML=(AIS.err?`${esc(AIS.err)}<br>`:"")+`Conexión cerrada; reintento en ${Math.round(aisDelay()/1000)} s. <a href="${esc(aisTestUrl())}" target="_blank" rel="noopener">Probar el relevo</a>`;clearTimeout(AIS.retry);AIS.retry=setTimeout(()=>{if(AIS.on)aisConnect();},AIS.nextDelay);}};
-}
-// reconexión con espera exponencial y variación aleatoria, como recomienda AISStream
-function aisDelay(){AIS.retryN=(AIS.retryN||0)+1;const base=Math.min(300,10*2**(AIS.retryN-1));AIS.nextDelay=Math.round(base*1000*(0.7+Math.random()*0.6));return AIS.nextDelay;}
-window.addEventListener("pagehide",()=>{try{AIS.ws&&AIS.ws.close(1000,"pestaña cerrada");}catch(e){}});
-function aisDisconnect(){AIS.on=false;clearTimeout(AIS.retry);try{AIS.ws&&AIS.ws.close();}catch(e){}AIS.ws=null;aisUI();$("aisStat").textContent="Desconectado.";}
-function aisMsg(m){
-  const md=m.MetaData||m.Metadata||{},mm=String(md.MMSI||md.mmsi||"");if(!mm)return;const sh=AIS.ships[mm]=AIS.ships[mm]||{mmsi:mm};
-  sh.name=(md.ShipName||md.shipname||sh.name||"").trim();const la=md.latitude??md.Latitude,lo=md.longitude??md.Longitude;
-  const pr=m.Message&&(m.Message.PositionReport||m.Message.StandardClassBPositionReport||m.Message.ExtendedClassBPositionReport);
-  if(pr){sh.sog=pr.Sog;sh.cog=pr.Cog;sh.hdg=pr.TrueHeading!==511?pr.TrueHeading:null;sh.lat=pr.Latitude??la;sh.lon=pr.Longitude??lo;sh.t=Date.now();}
-  const st=m.Message&&m.Message.ShipStaticData;if(st){sh.name=(st.Name||sh.name||"").trim();sh.dest=(st.Destination||"").trim();sh.type=st.Type;if(st.Dimension)sh.len=(st.Dimension.A||0)+(st.Dimension.B||0);}
-  if(sh.lat==null||sh.lon==null||Math.abs(sh.lat)>90)return;
-  const moving=(sh.sog||0)>0.5,dir=moving?(sh.cog??sh.hdg??0):(sh.hdg??0);
-  const tip=`<b>${esc(sh.name||"Sin nombre")}</b><br>MMSI ${mm}<br>${f(sh.sog,1)} kn · ${sh.cog==null?"—":Math.round(sh.cog)+"°"}${sh.dest?"<br>Destino: "+esc(sh.dest):""}${sh.len?"<br>Eslora "+sh.len+" m":""}<br>${sh.t?hhmm(sh.t):""}`;
-  if(!sh.mk)sh.mk=L.marker([sh.lat,sh.lon],{icon:aisIcon(dir,moving)}).bindTooltip(tip).addTo(aisLayer);else{sh.mk.setLatLng([sh.lat,sh.lon]);sh.mk.setIcon(aisIcon(dir,moving));sh.mk.setTooltipContent(tip);}
-  aisStatus();
-}
-setInterval(()=>{const lim=Date.now()-20*60e3;Object.keys(AIS.ships).forEach(k=>{const s2=AIS.ships[k];if(s2.t&&s2.t<lim){if(s2.mk)aisLayer.removeLayer(s2.mk);delete AIS.ships[k];}});},60e3);
-map.on("moveend",()=>{if(AIS.on)aisSub();});
-$("aisOn").addEventListener("click",aisConnect);$("aisOff").addEventListener("click",aisDisconnect);
-
 // ======================= Exportar a PDF y Excel =======================
 const LIB={xlsx:"https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",jspdf:"https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",auto:"https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"};
 const _ls={};function loadScript(src){return _ls[src]=_ls[src]||new Promise((ok,ko)=>{const sc=document.createElement("script");sc.src=src;sc.onload=ok;sc.onerror=()=>{delete _ls[src];ko(new Error("no se pudo cargar "+src.split("/")[5]));};document.head.appendChild(sc);});}
@@ -1684,7 +1633,7 @@ $("mapFull").addEventListener("change",()=>{S.cfg.mapFull=$("mapFull").checked;s
   const end=()=>{if(!on)return;on=false;S.cfg.mapH=$("map").offsetHeight;save();mapSize();};g.addEventListener("pointerup",end);g.addEventListener("pointercancel",end);
   g.addEventListener("keydown",e=>{if(e.key!=="ArrowUp"&&e.key!=="ArrowDown")return;e.preventDefault();S.cfg.mapH=clamp($("map").offsetHeight+(e.key==="ArrowDown"?40:-40),200,3000);save();mapSize();});})();
 window.addEventListener("resize",()=>{if(S.cfg.mapH==="screen"||S.cfg.mapH==null)mapSize();});
-function renderAll(){mapSize();renderCtrl();renderPlace();renderRouteEd();drawMap(true);renderCV();renderExt();setRV(true);navRender();aisUI();}
+function renderAll(){mapSize();renderCtrl();renderPlace();renderRouteEd();drawMap(true);renderCV();renderExt();setRV(true);navRender();}
 renderAll();reload();
 })();
 </script>
